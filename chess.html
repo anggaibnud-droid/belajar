@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess Game</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: 'Segoe UI', sans-serif;
+        background: linear-gradient(135deg, #2c3e50, #4b6584);
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 20px;
+    }
+    h1 { margin-bottom: 15px; font-size: 2em; }
+   .info {
+        margin-bottom: 15px;
+        font-size: 1.2em;
+        font-weight: bold;
+        background: rgba(255,255,255,0.1);
+        padding: 10px 20px;
+        border-radius: 10px;
+    }
+    #board {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        width: min(90vw, 560px);
+        height: min(90vw, 560px);
+        border: 4px solid #2c3e50;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+   .square {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: min(7vw, 45px);
+        cursor: pointer;
+        user-select: none;
+        transition: 0.1s;
+    }
+   .light { background: #f0d9b5; color: #000; }
+   .dark { background: #b58863; color: #000; }
+   .selected { background: #7dd56f!important; }
+   .valid-move {
+        box-shadow: inset 0 0 0 4px rgba(125, 213, 111, 0.8);
+    }
+   .check { background: #ff6b6b!important; }
+   .controls {
+        margin-top: 20px;
+        display: flex;
+        gap: 10px;
+    }
+    button {
+        padding: 12px 25px;
+        border: none;
+        border-radius: 8px;
+        background: #fff;
+        color: #2c3e50;
+        font-weight: bold;
+        cursor: pointer;
+        font-size: 1em;
+        transition: 0.2s;
+    }
+    button:hover { transform: scale(1.05); }
+   .captured {
+        margin-top: 15px;
+        font-size: 1.5em;
+        min-height: 40px;
+    }
+</style>
+</head>
+<body>
+
+<h1>♟️ Chess Game</h1>
+<div class="info" id="turnInfo">Giliran: Putih</div>
+<div id="board"></div>
+<div class="captured" id="captured"></div>
+<div class="controls">
+    <button onclick="resetGame()">Reset Game</button>
+    <button onclick="undoMove()">Undo</button>
+</div>
+
+<script>
+const board = document.getElementById('board');
+const turnInfo = document.getElementById('turnInfo');
+const capturedDiv = document.getElementById('captured');
+
+let gameState = [];
+let selected = null;
+let turn = 'w';
+let moveHistory = [];
+let capturedPieces = [];
+let enPassantTarget = null;
+
+const pieces = {
+    'wK': '♔', 'wQ': '♕', 'wR': '♖', 'wB': '♗', 'wN': '♘', 'wP': '♙',
+    'bK': '♚', 'bQ': '♛', 'bR': '♜', 'bB': '♝', 'bN': '♞', 'bP': '♟'
+};
+
+function initGame() {
+    gameState = [
+        ['bR','bN','bB','bQ','bK','bB','bN','bR'],
+        ['bP','bP','bP','bP','bP','bP','bP','bP'],
+        ['','','',''],
+        ['','','',''],
+        ['','','',''],
+        ['','','',''],
+        ['wP','wP','wP','wP','wP','wP','wP','wP'],
+        ['wR','wN','wB','wQ','wK','wB','wN','wR']
+    ];
+    selected = null;
+    turn = 'w';
+    moveHistory = [];
+    capturedPieces = [];
+    enPassantTarget = null;
+    render();
+}
+
+function render() {
+    board.innerHTML = '';
+    for(let r=0; r<8; r++) {
+        for(let c=0; c<8; c++) {
+            const square = document.createElement('div');
+            square.className = `square ${(r+c)%2===0? 'light' : 'dark'}`;
+            square.dataset.row = r;
+            square.dataset.col = c;
+            square.textContent = pieces[gameState[r][c]] || '';
+
+            if(selected && selected.r===r && selected.c===c) {
+                square.classList.add('selected');
+            }
+
+            square.onclick = () => handleClick(r, c);
+            board.appendChild(square);
+        }
+    }
+    turnInfo.textContent = `Giliran: ${turn==='w'? 'Putih' : 'Hitam'}`;
+    capturedDiv.textContent = capturedPieces.map(p => pieces[p]).join(' ');
+}
+
+function handleClick(r, c) {
+    const piece = gameState[r][c];
+
+    if(selected) {
+        if(isValidMove(selected.r, selected.c, r, c)) {
+            makeMove(selected.r, selected.c, r, c);
+            selected = null;
+            render();
+            checkGameState();
+            return;
+        }
+        selected = null;
+    }
+
+    if(piece && piece[0]===turn) {
+        selected = {r, c};
+        highlightMoves(r, c);
+    }
+    render();
+}
+
+function highlightMoves(r, c) {
+    for(let i=0; i<8; i++) {
+        for(let j=0; j<8; j++) {
+            if(isValidMove(r, c, i, j)) {
+                board.children[i*8+j].classList.add('valid-move');
+            }
+        }
+    }
+}
+
+function makeMove(fr, fc, tr, tc) {
+    const piece = gameState[fr][fc];
+    const captured = gameState[tr][tc];
+
+    moveHistory.push({
+        board: JSON.parse(JSON.stringify(gameState)),
+        turn: turn,
+        enPassant: enPassantTarget,
+        captured: captured
+    });
+
+    // En passant capture
+    if(piece[1]==='P' && tr===enPassantTarget?.r && tc===enPassantTarget?.c) {
+        capturedPieces.push(gameState[fr][tc]);
+        gameState[fr][tc] = '';
+    }
+
+    // Castling
+    if(piece[1]==='K' && Math.abs(tc-fc)===2) {
+        const rook
